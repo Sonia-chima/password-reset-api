@@ -6,7 +6,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import PasswordResetToken
-from .serializers import PasswordResetRequestSerializer
+from .serializers import (
+    PasswordResetConfirmSerializer,
+    PasswordResetRequestSerializer,
+)
 from .services import send_password_reset_email
 from .throttles import PasswordResetRequestThrottle
 
@@ -66,3 +69,47 @@ class PasswordResetRequestView(APIView):
         )
         exc.wait = wait
         raise exc
+
+
+class PasswordResetConfirmView(APIView):
+    """POST /password-reset-confirm
+
+    Accepts a reset token plus a new password. If the token exists and is
+    still valid (unused and unexpired), the matching user's password is
+    updated and the token is marked used so it cannot be replayed.
+    """
+
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token_str = serializer.validated_data['token']
+        new_password = serializer.validated_data['new_password']
+        try:
+            reset_token = PasswordResetToken.objects.get(token=token_str)
+        except PasswordResetToken.DoesNotExist:
+            return Response(
+                {"detail": "Invalid or expired token."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not reset_token.is_valid():
+            return Response(
+                {"detail": "Invalid or expired token."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        try:
+            user = User.objects.get(email=reset_token.email)
+            user.set_password(new_password)
+            user.save()
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "User account not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        reset_token.is_used = True
+        reset_token.save()
+        return Response(
+            {"message": "Password has been successfully reset."},
+            status=status.HTTP_200_OK
+        )
