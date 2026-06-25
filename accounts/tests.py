@@ -180,6 +180,62 @@ class PasswordResetConfirmEndpointTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_too_short_password_returns_400(self):
+        response = self.client.post(
+            self.url,
+            self._payload(new_password='Ab1xy', confirm_password='Ab1xy'),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Password must be unchanged and token not consumed.
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('old-password'))
+        self.token.refresh_from_db()
+        self.assertFalse(self.token.is_used)
+
+    def test_common_password_returns_400(self):
+        response = self.client.post(
+            self.url,
+            self._payload(
+                new_password='password123', confirm_password='password123'
+            ),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('old-password'))
+
+    def test_numeric_only_password_returns_400(self):
+        response = self.client.post(
+            self.url,
+            self._payload(
+                new_password='12345678', confirm_password='12345678'
+            ),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('old-password'))
+
+    def test_valid_strong_password_returns_200(self):
+        response = self.client.post(
+            self.url,
+            self._payload(
+                new_password='Str0ng-P@ssw0rd!',
+                confirm_password='Str0ng-P@ssw0rd!',
+            ),
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('Str0ng-P@ssw0rd!'))
+        self.token.refresh_from_db()
+        self.assertTrue(self.token.is_used)
+
 
 class PasswordResetFlowIntegrationTests(APITestCase):
     """End-to-end: request a reset, then confirm it with the issued token."""

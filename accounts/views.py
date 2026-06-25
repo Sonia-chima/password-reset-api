@@ -1,4 +1,6 @@
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.permissions import AllowAny
@@ -100,13 +102,23 @@ class PasswordResetConfirmView(APIView):
             )
         try:
             user = User.objects.get(email=reset_token.email)
-            user.set_password(new_password)
-            user.save()
         except User.DoesNotExist:
             return Response(
                 {"detail": "User account not found."},
                 status=status.HTTP_404_NOT_FOUND
             )
+        # Enforce Django's configured password validators (minimum length,
+        # common passwords, numeric-only, similarity to user attributes)
+        # before accepting the new password.
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"detail": exc.messages},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        user.set_password(new_password)
+        user.save()
         reset_token.is_used = True
         reset_token.save()
         return Response(
